@@ -1,4 +1,3 @@
-cat > src/portal/portal.js <<'EOF'
 /* =========================================================
    PORTAL KELAS 9A — JavaScript (tempel di panel JS CodePen)
    Database online: Lovable Cloud (tanpa login, data bersama,
@@ -389,4 +388,594 @@ function kasRingkasan(members, payments, week, kewajiban) {
     $("#brandName").textContent = full;
     $("#brandSub").textContent = "Kelas " + cls() + " · " + state.members.length + " Siswa";
 
-    document.query
+    document.querySelectorAll("[data-action=go]").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.page === ui.page);
+    });
+    var inBottom = BOTTOM.indexOf(ui.page) >= 0;
+    var menuBtn = document.querySelector('.bn-item[data-page="menu"]');
+    if (menuBtn) menuBtn.classList.toggle("active", !inBottom);
+
+    var view = $("#view");
+    var a = document.activeElement, focusId = null, selStart = null, selEnd = null;
+    if (a && a.id && view.contains(a)) {
+      focusId = a.id;
+      try { selStart = a.selectionStart; selEnd = a.selectionEnd; } catch (e) {}
+    }
+    var html = state.loaded ? PAGES[ui.page]() : skeleton();
+    view.innerHTML = html;
+    if (animate) { view.style.animation = "none"; void view.offsetWidth; view.style.animation = ""; }
+    if (focusId) {
+      var el = document.getElementById(focusId);
+      if (el) { el.focus(); try { if (selStart != null) el.setSelectionRange(selStart, selEnd); } catch (e) {} }
+    }
+    icons();
+    tick();
+  }
+  function skeleton() {
+    if (state.error) {
+      return '<div class="empty" style="padding:40px"><i data-lucide="wifi-off"></i><b>Tidak dapat terhubung ke database.</b><br>Periksa internet lalu coba lagi.<br><br>' +
+        '<button class="btn btn-primary" data-action="retry"><i data-lucide="rotate-ccw"></i> Coba Lagi</button></div>';
+    }
+    return '<div class="skeleton" style="height:180px"></div><div class="skeleton"></div><div class="skeleton"></div>';
+  }
+  function pageHead(title, sub, icon, actions) {
+    return '<div class="page-head"><div><h2><span class="ph-icon"><i data-lucide="' + icon + '"></i></span>' + esc(title) + "</h2>" +
+      (sub ? "<p>" + sub + "</p>" : "") + "</div>" + (actions || "") + "</div>";
+  }
+  function emptyBox(icon, text) { return '<div class="empty"><i data-lucide="' + icon + '"></i>' + text + "</div>"; }
+
+  function tick() {
+    var now = new Date();
+    var t = $("#clockTime"), d = $("#clockDate");
+    if (t) t.textContent = pad(now.getHours()) + "." + pad(now.getMinutes()) + "." + pad(now.getSeconds());
+    if (d) d.textContent = DAYS[now.getDay()] + ", " + now.getDate() + " " + MONTHS[now.getMonth()] + " " + now.getFullYear();
+  }
+  setInterval(tick, 1000);
+  var lastMinute = nowMin();
+  setInterval(function () {
+    var m = nowMin();
+    if (m !== lastMinute) { lastMinute = m; if (state.loaded && ["beranda", "jadwal", "tugas", "piket", "kas"].indexOf(ui.page) >= 0) render(); }
+  }, 5000);
+
+  /* ---------- HALAMAN: BERANDA ---------- */
+  function pageBeranda() {
+    var day = todayDay();
+    var lessons = day === 0 ? [] : schedulesOf(day);
+    var pk = picketsOf(day);
+    var tasks = activeTasks();
+    var anns = annSorted(false).slice(0, 3);
+    var w = currentWeek();
+    var kas = kasRingkasan(state.members, state.kas_payments, w, nominal());
+    var pct = kas.target ? Math.round((kas.terkumpul / kas.target) * 100) : 0;
+
+    var lessonHtml = lessons.length ? '<div class="mini-list">' + lessons.map(function (s) {
+      return '<div class="mini-item"><div class="num" style="width:auto;padding:0 8px">' + fmtTime(s.start_time) + '</div><div class="mi-main"><b>' + esc(s.subject) + "</b><small>" +
+        fmtTime(s.start_time) + "–" + fmtTime(s.end_time) + " · " + esc(s.teacher) + "</small></div>" + statusBadge(lessonStatus(s, day)) + "</div>";
+    }).join("") + "</div>" : emptyBox("coffee", day === 0 ? "Hari Minggu — tidak ada pelajaran. Selamat beristirahat!" : "Belum ada jadwal untuk hari ini.");
+
+    var picketHtml = pk.length ? '<div class="chips">' + pk.map(function (p, i) {
+      return '<span class="chip"><span class="ava c' + (i % 6) + '">' + esc(initials(p.name)) + "</span>" + esc(p.name) + "</span>";
+    }).join("") + "</div>" : emptyBox("sparkles", day === 0 ? "Hari Minggu — tidak ada piket." : "Belum ada petugas piket hari ini.");
+
+    var taskHtml = tasks.length ? '<div class="mini-list">' + tasks.slice(0, 3).map(function (t) {
+      var dl = deadlineInfo(t);
+      return '<div class="mini-item"><div class="mi-main"><b>' + esc(t.title) + "</b><small>" + esc(t.subject) + ' · <span class="' + dl.cls + '">' + esc(dl.text) + "</span></small></div>" + taskBadge(t.status) + "</div>";
+    }).join("") + "</div>" : emptyBox("party-popper", "Tidak ada tugas aktif.");
+
+    var annHtml = anns.length ? '<div class="mini-list">' + anns.map(function (a) {
+      return '<div class="mini-item"><div class="mi-main"><b>' + (a.important ? "⭐ " : "") + esc(a.title) + "</b><small>" + fmtDate(a.date) + (a.author ? " · " + esc(a.author) : "") + "</small></div></div>";
+    }).join("") + "</div>" : emptyBox("megaphone", "Belum ada pengumuman.");
+
+    return '<section class="hero"><div>' +
+      '<p class="hero-eyebrow"><i data-lucide="sparkles"></i> Dashboard Kelas</p>' +
+      "<h1>SELAMAT DATANG " + esc(cls()) + "!</h1>" +
+      '<p class="hero-tag">“Satu portal untuk semua informasi kelas ' + esc(cls()) + '.”</p>' +
+      '<div class="hero-chips"><span class="chip-light"><i data-lucide="school"></i> Kelas ' + esc(cls()) + " | " + state.members.length + " Siswa</span></div>" +
+      '</div><div class="clock-card"><div class="clock-time" id="clockTime">--.--</div><div class="clock-date" id="clockDate"></div></div></section>' +
+      '<div class="dash-grid">' +
+      dashCard("Jadwal Hari Ini", "calendar-days", "", "jadwal", lessonHtml) +
+      dashCard("Piket Hari Ini", "brush", "teal", "piket", picketHtml) +
+      dashCard("Tugas Aktif", "clipboard-list", "purple", "tugas", '<div class="stat-row" style="margin-bottom:10px"><span class="big-num" style="color:var(--purple)">' + tasks.length + '</span><span class="hint" style="align-self:center">tugas belum selesai</span></div>' + taskHtml) +
+      dashCard("Pengumuman Terbaru", "megaphone", "orange", "pengumuman", annHtml) +
+      dashCard("Uang Kas Minggu Ini", "wallet", "green", "kas",
+        '<p class="hint">Minggu ' + w + " · kewajiban " + rupiah(nominal()) + "/siswa</p>" +
+        '<div class="stat-row" style="margin:8px 0"><span class="big-num" style="color:var(--green)">' + rupiah(kas.terkumpul) + '</span></div>' +
+        '<div class="progress"><span style="width:' + Math.min(100, pct) + '%"></span></div>' +
+        '<div class="chips" style="margin-top:10px"><span class="badge b-green">' + kas.lunas + ' Lunas</span><span class="badge b-orange">' + kas.sebagian + ' Sebagian</span><span class="badge b-red">' + kas.belum + " Belum</span></div>") +
+      dashCard("Anggota Kelas", "users", "navy", "anggota",
+        '<div class="stat-row"><span class="big-num">' + state.members.length + '</span><span class="hint" style="align-self:center">siswa terdaftar di kelas ' + esc(cls()) + "</span></div>" +
+        '<div class="chips" style="margin-top:10px">' + membersSorted().slice(0, 6).map(function (m, i) {
+          return '<span class="ava c' + (i % 6) + '" title="' + esc(m.name) + '" style="width:34px;height:34px;font-size:12px;margin-right:-14px;border:2px solid var(--card)">' + esc(initials(m.name)) + "</span>";
+        }).join("") + "</div>") +
+      "</div>";
+  }
+  function dashCard(title, icon, color, page, body) {
+    return '<div class="card dash-card"><div class="card-head"><div class="card-icon ' + color + '"><i data-lucide="' + icon + '"></i></div><h3>' + title + "</h3>" +
+      '<button class="link-btn" data-action="go" data-page="' + page + '">Lihat <i data-lucide="chevron-right"></i></button></div>' + body + "</div>";
+  }
+
+  /* ---------- HALAMAN: JADWAL PELAJARAN ---------- */
+  function pageJadwal() {
+    var d = ui.jadwalDay;
+    var tabs = [1, 2, 3, 4, 5, 6].map(function (i) {
+      return '<button class="tab' + (i === d ? " active" : "") + '" data-action="jadwal-day" data-day="' + i + '">' + (i === todayDay() ? '<span class="today-dot"></span>' : "") +
+        DAYS[i] + '<span class="tab-count">' + schedulesOf(i).length + "</span></button>";
+    }).join("");
+    var list = schedulesOf(d);
+    var body = list.length ? '<div class="lesson-list">' + list.map(function (s) {
+      var st = lessonStatus(s, d);
+      return '<div class="lesson ' + (st || "") + '"><div class="lesson-time">' + fmtTime(s.start_time) + "<span>" + fmtTime(s.end_time) + "</span></div>" +
+        '<div class="lesson-body"><h4>' + esc(s.subject) + '</h4><p><i data-lucide="user-round"></i>' + esc(s.teacher || "-") + "</p></div>" +
+        '<div class="lesson-side">' + statusBadge(st) + '<div class="row-actions">' +
+        '<button class="icon-btn sm" data-action="edit-schedule" data-id="' + s.id + '" aria-label="Edit"><i data-lucide="pencil"></i></button>' +
+        '<button class="icon-btn sm danger" data-action="del-schedule" data-id="' + s.id + '" aria-label="Hapus"><i data-lucide="trash-2"></i></button></div></div></div>';
+    }).join("") + "</div>" : emptyBox("calendar-x", "Belum ada pelajaran di hari " + DAYS[d] + ".");
+    return pageHead("Jadwal Pelajaran", "Status pelajaran mengikuti jam perangkat kamu.", "calendar-days",
+      '<button class="btn btn-primary" data-action="add-schedule"><i data-lucide="plus"></i> Tambah Jadwal</button>') +
+      '<div class="tabs">' + tabs + "</div>" + body;
+  }
+  function scheduleForm(s) {
+    var isEdit = !!s; s = s || { day: ui.jadwalDay, start_time: "", end_time: "", subject: "", teacher: "" };
+    openForm({
+      title: isEdit ? "Edit Jadwal" : "Tambah Jadwal", icon: "calendar-days",
+      fields: [
+        { name: "day", label: "Hari", type: "select", value: s.day, options: [1, 2, 3, 4, 5, 6].map(function (i) { return { value: i, label: DAYS[i] }; }) },
+        { name: "start_time", label: "Jam Mulai", type: "time", value: String(s.start_time).slice(0, 5), required: true, half: true },
+        { name: "end_time", label: "Jam Selesai", type: "time", value: String(s.end_time).slice(0, 5), required: true, half: true },
+        { name: "subject", label: "Mata Pelajaran", value: s.subject, required: true, datalist: subjectList(), placeholder: "cth. Matematika" },
+        { name: "teacher", label: "Guru", value: s.teacher, placeholder: "cth. Pak Maulana" }
+      ],
+      onSubmit: function (v) {
+        if (toMin(v.end_time) <= toMin(v.start_time)) { toast("Jam selesai harus setelah jam mulai", "warn"); return false; }
+        var payload = { day: Number(v.day), start_time: v.start_time, end_time: v.end_time, subject: v.subject, teacher: v.teacher };
+        ui.jadwalDay = payload.day;
+        var q = isEdit ? db.from("schedules").update(payload).eq("id", s.id) : db.from("schedules").insert(payload);
+        return run(q, { ok: isEdit ? "Jadwal diperbarui" : "Jadwal ditambahkan", tables: ["schedules"],
+          log: [isEdit ? "Edit jadwal" : "Tambah jadwal", DAYS[payload.day] + " " + fmtTime(v.start_time) + " " + v.subject] });
+      }
+    });
+  }
+
+  /* ---------- HALAMAN: JADWAL PIKET ---------- */
+  function pagePiket() {
+    var today = todayDay();
+    var cards = [1, 2, 3, 4, 5, 6].map(function (d) {
+      var list = picketsOf(d);
+      return '<div class="card picket-card' + (d === today ? " today" : "") + '"><div class="card-head"><div class="card-icon ' + (d === today ? "teal" : "") + '"><i data-lucide="brush"></i></div>' +
+        "<h3>" + DAYS[d] + (d === today ? ' <span class="badge b-teal">Hari ini</span>' : "") + '</h3><span class="badge b-muted">' + list.length + " orang</span></div>" +
+        (list.length ? '<div class="chips">' + list.map(function (p) {
+          return '<span class="p-chip">' + esc(p.name) +
+            '<button class="icon-btn" data-action="move-picket" data-id="' + p.id + '" title="Pindahkan" aria-label="Pindahkan"><i data-lucide="arrow-left-right"></i></button>' +
+            '<button class="icon-btn" data-action="edit-picket" data-id="' + p.id + '" title="Edit" aria-label="Edit"><i data-lucide="pencil"></i></button>' +
+            '<button class="icon-btn danger" data-action="del-picket" data-id="' + p.id + '" title="Hapus" aria-label="Hapus"><i data-lucide="x"></i></button></span>';
+        }).join("") + "</div>" : emptyBox("user-plus", "Belum ada petugas.")) +
+        '<button class="btn btn-ghost btn-sm btn-block" style="margin-top:12px" data-action="add-picket" data-day="' + d + '"><i data-lucide="plus"></i> Tambah Petugas</button></div>';
+    }).join("");
+    return pageHead("Jadwal Piket", "Kartu bertanda “Hari ini” otomatis tampil di Beranda.", "brush",
+      '<button class="btn btn-primary" data-action="add-picket" data-day="' + (today === 0 ? 1 : today) + '"><i data-lucide="plus"></i> Tambah Petugas</button>') +
+      '<div class="picket-grid">' + cards + "</div>";
+  }
+  function picketForm(p, day, moveOnly) {
+    var isEdit = !!p; p = p || { name: "", day: day || 1 };
+    var dayField = { name: "day", label: moveOnly ? "Pindahkan ke hari" : "Hari", type: "select", value: p.day, options: [1, 2, 3, 4, 5, 6].map(function (i) { return { value: i, label: DAYS[i] }; }) };
+    var fields = moveOnly ? [dayField] : [
+      { name: "name", label: "Nama Petugas", value: p.name, required: true, placeholder: "cth. Waldan", datalist: state.members.map(function (m) { return m.name; }) },
+      dayField
+    ];
+    openForm({
+      title: moveOnly ? "Pindahkan " + p.name : isEdit ? "Edit Petugas Piket" : "Tambah Petugas Piket", icon: moveOnly ? "arrow-left-right" : "brush", color: "teal",
+      submit: moveOnly ? "Pindahkan" : "Simpan", fields: fields,
+      onSubmit: function (v) {
+        var newDay = Number(v.day);
+        var pos = picketsOf(newDay).reduce(function (m, x) { return Math.max(m, x.position); }, 0) + 1;
+        if (moveOnly) {
+          return run(db.from("pickets").update({ day: newDay, position: pos }).eq("id", p.id),
+            { ok: p.name + " dipindah ke " + DAYS[newDay], tables: ["pickets"], log: ["Pindah piket", p.name + ": " + DAYS[p.day] + " → " + DAYS[newDay]] });
+        }
+        if (isEdit) {
+          var upd = { name: v.name, day: newDay };
+          if (newDay !== Number(p.day)) upd.position = pos;
+          return run(db.from("pickets").update(upd).eq("id", p.id),
+            { ok: "Petugas piket diperbarui", tables: ["pickets"], log: ["Edit piket", v.name + " (" + DAYS[newDay] + ")"] });
+        }
+        return run(db.from("pickets").insert({ name: v.name, day: newDay, position: pos }),
+          { ok: "Petugas piket ditambahkan", tables: ["pickets"], log: ["Tambah piket", v.name + " (" + DAYS[newDay] + ")"] });
+      }
+    });
+  }
+
+  /* ---------- HALAMAN: TUGAS ---------- */
+  function pageTugas() {
+    var q = ui.taskSearch.toLowerCase();
+    var list = state.tasks.filter(function (t) {
+      if (ui.taskStatus !== "Semua" && t.status !== ui.taskStatus) return false;
+      if (ui.taskSubject !== "Semua" && t.subject !== ui.taskSubject) return false;
+      if (q && (t.title + " " + t.description + " " + t.subject).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    }).sort(function (a, b) {
+      var sa = a.status === "Selesai" ? 1 : 0, sb = b.status === "Selesai" ? 1 : 0;
+      return sa - sb || (a.deadline || "9999").localeCompare(b.deadline || "9999");
+    });
+    var subjects = ["Semua"].concat(subjectList());
+    var counts = STATUSES.map(function (s) { return state.tasks.filter(function (t) { return t.status === s; }).length; });
+    var body = list.length ? '<div class="list-grid">' + list.map(function (t) {
+      var dl = deadlineInfo(t);
+      return '<article class="item-card' + (t.status === "Selesai" ? " done" : "") + '"><div class="item-top"><span class="badge b-purple"><i data-lucide="book-open"></i>' + esc(t.subject) + '</span><span class="spacer"></span>' + taskBadge(t.status) + "</div>" +
+        "<h4>" + esc(t.title) + "</h4>" + (t.description ? '<p class="desc">' + esc(t.description) + "</p>" : "") +
+        '<div class="item-meta"><span><i data-lucide="calendar-plus"></i>Diberikan ' + fmtDate(t.given_date) + '</span><span class="' + dl.cls + '"><i data-lucide="alarm-clock"></i>Deadline ' + esc(dl.text) + "</span></div>" +
+        '<div class="item-actions"><select class="inline-select" data-change="task-status" data-id="' + t.id + '" aria-label="Ubah status">' +
+        STATUSES.map(function (s) { return "<option" + (s === t.status ? " selected" : "") + ">" + s + "</option>"; }).join("") + '</select><span class="spacer"></span>' +
+        '<button class="icon-btn sm" data-action="edit-task" data-id="' + t.id + '" aria-label="Edit"><i data-lucide="pencil"></i></button>' +
+        '<button class="icon-btn sm danger" data-action="del-task" data-id="' + t.id + '" aria-label="Hapus"><i data-lucide="trash-2"></i></button></div></article>';
+    }).join("") + "</div>" : emptyBox("clipboard-list", state.tasks.length ? "Tidak ada tugas yang cocok dengan pencarian/filter." : "Belum ada tugas. Tekan “Tambah Tugas” untuk menambahkan.");
+    return pageHead("Tugas", counts[0] + " belum · " + counts[1] + " sedang · " + counts[2] + " selesai", "clipboard-list",
+      '<button class="btn btn-primary" data-action="add-task"><i data-lucide="plus"></i> Tambah Tugas</button>') +
+      '<div class="toolbar"><div class="search"><i data-lucide="search"></i><input id="taskSearch" data-bind="taskSearch" value="' + esc(ui.taskSearch) + '" placeholder="Cari tugas…" autocomplete="off"></div>' +
+      '<select id="taskStatus" data-bind="taskStatus" aria-label="Filter status">' + ["Semua"].concat(STATUSES).map(function (s) { return "<option" + (s === ui.taskStatus ? " selected" : "") + ">" + s + "</option>"; }).join("") + "</select>" +
+      '<select id="taskSubject" data-bind="taskSubject" aria-label="Filter mapel">' + subjects.map(function (s) { return '<option value="' + esc(s) + '"' + (s === ui.taskSubject ? " selected" : "") + ">" + (s === "Semua" ? "Semua Mapel" : esc(s)) + "</option>"; }).join("") + "</select></div>" + body;
+  }
+  function taskForm(t) {
+    var isEdit = !!t; t = t || { subject: "", title: "", description: "", given_date: todayISO(), deadline: "", status: "Belum Dikerjakan" };
+    openForm({
+      title: isEdit ? "Edit Tugas" : "Tambah Tugas", icon: "clipboard-list", color: "purple",
+      fields: [
+        { name: "subject", label: "Mata Pelajaran", value: t.subject, required: true, datalist: subjectList(), placeholder: "cth. IPA" },
+        { name: "title", label: "Judul Tugas", value: t.title, required: true, placeholder: "cth. Rangkuman Bab 3" },
+        { name: "description", label: "Deskripsi", type: "textarea", value: t.description, placeholder: "Detail tugas…" },
+        { name: "given_date", label: "Tanggal Diberikan", type: "date", value: t.given_date, required: true, half: true },
+        { name: "deadline", label: "Deadline", type: "date", value: t.deadline || "", half: true },
+        { name: "status", label: "Status", type: "select", value: t.status, options: STATUSES }
+      ],
+      onSubmit: function (v) {
+        var payload = { subject: v.subject, title: v.title, description: v.description, given_date: v.given_date, deadline: v.deadline || null, status: v.status };
+        var q = isEdit ? db.from("tasks").update(payload).eq("id", t.id) : db.from("tasks").insert(payload);
+        return run(q, { ok: isEdit ? "Tugas diperbarui" : "Tugas ditambahkan", tables: ["tasks"], log: [isEdit ? "Edit tugas" : "Tambah tugas", v.subject + ": " + v.title] });
+      }
+    });
+  }
+
+  /* ---------- HALAMAN: PENGUMUMAN ---------- */
+ function pagePengumuman() {
+    var q = ui.annSearch.toLowerCase();
+    var list = annSorted(true).filter(function (a) { return !q || (a.title + " " + a.content + " " + a.author).toLowerCase().indexOf(q) >= 0; });
+    var body = list.length ? '<div class="list-grid">' + list.map(function (a) {
+      return '<article class="item-card ann' + (a.important ? " important" : "") + '"><div class="item-top">' +
+        (a.important ? '<span class="badge b-orange"><i data-lucide="star"></i> Penting</span>' : '<span class="badge b-blue"><i data-lucide="megaphone"></i> Info</span>') +
+        '<span class="spacer"></span><span class="hint">' + fmtDate(a.date, true) + "</span></div>" +
+        "<h4>" + esc(a.title) + "</h4>" + (a.content ? '<p class="desc">' + esc(a.content) + "</p>" : "") +
+        '<div class="item-actions"><span class="item-meta"><span><i data-lucide="user-round"></i>' + esc(a.author || "Tanpa nama") + '</span></span><span class="spacer"></span>' +
+        '<button class="icon-btn sm" data-action="edit-ann" data-id="' + a.id + '" aria-label="Edit"><i data-lucide="pencil"></i></button>' +
+        '<button class="icon-btn sm danger" data-action="del-ann" data-id="' + a.id + '" aria-label="Hapus"><i data-lucide="trash-2"></i></button></div></article>';
+    }).join("") + "</div>" : emptyBox("megaphone", state.announcements.length ? "Tidak ada pengumuman yang cocok." : "Belum ada pengumuman. Tekan “Tambah Pengumuman”.");
+    return pageHead("Pengumuman", "Pengumuman penting selalu tampil paling atas.", "megaphone",
+      '<button class="btn btn-primary" data-action="add-ann"><i data-lucide="plus"></i> Tambah Pengumuman</button>') +
+      '<div class="toolbar" style="grid-template-columns:1fr"><div class="search"><i data-lucide="search"></i><input id="annSearch" data-bind="annSearch" value="' + esc(ui.annSearch) + '" placeholder="Cari pengumuman…" autocomplete="off"></div></div>' + body;
+  }
+  function annForm(a) {
+    var isEdit = !!a; a = a || { title: "", content: "", date: todayISO(), author: "", important: false };
+    openForm({
+      title: isEdit ? "Edit Pengumuman" : "Tambah Pengumuman", icon: "megaphone", color: "orange",
+      fields: [
+        { name: "title", label: "Judul", value: a.title, required: true },
+        { name: "content", label: "Isi Pengumuman", type: "textarea", value: a.content },
+        { name: "date", label: "Tanggal", type: "date", value: a.date, required: true, half: true },
+        { name: "author", label: "Pembuat", value: a.author, placeholder: "cth. Ketua Kelas", half: true },
+        { name: "important", label: "Tandai sebagai PENTING", type: "checkbox", value: a.important }
+      ],
+      onSubmit: function (v) {
+        var payload = { title: v.title, content: v.content, date: v.date, author: v.author, important: !!v.important };
+        var q = isEdit ? db.from("announcements").update(payload).eq("id", a.id) : db.from("announcements").insert(payload);
+        return run(q, { ok: isEdit ? "Pengumuman diperbarui" : "Pengumuman ditambahkan", tables: ["announcements"], log: [isEdit ? "Edit pengumuman" : "Tambah pengumuman", v.title] });
+      }
+    });
+  }
+
+  /* ---------- HALAMAN: UANG KAS ---------- */
+  function pageKas() {
+    var w = ui.kasWeek, nom = nominal();
+    var sum = kasRingkasan(membersSorted(), state.kas_payments, w, nom);
+    var pct = sum.target ? Math.round((sum.terkumpul / sum.target) * 100) : 0;
+    var q = ui.kasSearch.toLowerCase();
+    var rows = sum.rows.filter(function (r) { return !q || r.member.name.toLowerCase().indexOf(q) >= 0; });
+    var tabs = [1, 2, 3, 4, 5].map(function (i) {
+      return '<button class="tab' + (i === w ? " active" : "") + '" data-action="kas-week" data-week="' + i + '">' + (i === currentWeek() ? '<span class="today-dot"></span>' : "") + "Minggu " + i + "</button>";
+    }).join("");
+    var stat = function (label, value, icon, c) { return '<div class="stat ' + c + '"><small><i data-lucide="' + icon + '"></i>' + label + "</small><b>" + value + "</b></div>"; };
+    var anyPay = sum.rows.some(function (r) { return r.payments.length; });
+    var list = rows.length ? '<div class="kas-list">' + rows.map(function (r, i) {
+      return '<div class="kas-row"><div class="kas-main"><span class="num">' + (sum.rows.indexOf(r) + 1) + '</span><div class="kas-info"><b>' + esc(r.member.name) + "</b>" +
+        "<small>Dibayar " + rupiah(r.paid) + " · Kurang " + rupiah(r.kurang) + '</small></div><div class="kas-side">' + kasBadge(r.status) +
+        '<button class="btn btn-primary btn-sm" data-action="pay" data-member="' + r.member.id + '"><i data-lucide="plus"></i> Bayar</button></div></div>' +
+        (r.payments.length ? '<div class="pay-hist">' + r.payments.map(function (p) {
+          return '<div class="pay-item"><i data-lucide="receipt"></i><div class="pi-main"><b>' + rupiah(p.amount) + "</b> <small>· " + fmtDate(p.paid_date) + (p.note ? " · " + esc(p.note) : "") + "</small></div>" +
+            '<button class="icon-btn sm" data-action="edit-pay" data-id="' + p.id + '" aria-label="Edit"><i data-lucide="pencil"></i></button>' +
+            '<button class="icon-btn sm danger" data-action="del-pay" data-id="' + p.id + '" aria-label="Hapus"><i data-lucide="trash-2"></i></button></div>';
+        }).join("") + "</div>" : "") + "</div>";
+    }).join("") + "</div>" : emptyBox("search-x", "Siswa tidak ditemukan.");
+    return pageHead("Uang Kas Kelas " + cls(), "Kekurangan = Kewajiban − Pembayaran. Status dihitung otomatis.", "wallet") +
+      '<div class="card nominal-bar"><div class="nb-text"><small>Kewajiban per siswa per minggu</small><b>' + rupiah(nom) + "</b></div>" +
+      '<button class="btn btn-ghost btn-sm" data-action="edit-nominal"><i data-lucide="pencil"></i> Ubah Nominal</button></div>' +
+      '<div class="tabs">' + tabs + "</div>" +
+      '<div class="stats">' +
+      stat("Total Siswa", sum.totalSiswa, "users", "s-blue") +
+      stat("Sudah Bayar (Lunas)", sum.lunas, "circle-check", "s-green") +
+      stat("Belum Bayar", sum.belum, "circle-x", "s-red") +
+      stat("Bayar Sebagian", sum.sebagian, "circle-dot", "s-orange") +
+      stat("Total Terkumpul", rupiah(sum.terkumpul), "coins", "s-teal") +
+      stat("Total Kekurangan", rupiah(sum.kekurangan), "triangle-alert", "s-red") +
+      "</div>" +
+      '<div class="card plain" style="margin-bottom:14px"><div class="nominal-bar" style="margin:0 0 8px"><span class="hint">Progres Minggu ' + w + "</span><b>" + pct + "% dari " + rupiah(sum.target) + "</b></div>" +
+      '<div class="progress"><span style="width:' + Math.min(100, pct) + '%"></span></div>' +
+      (anyPay ? "" : '<p class="hint" style="margin-top:10px">Belum ada data pembayaran untuk minggu ini. Tekan “Bayar” pada nama siswa untuk mencatat.</p>') + "</div>" +
+      '<div class="toolbar" style="grid-template-columns:1fr"><div class="search"><i data-lucide="search"></i><input id="kasSearch" data-bind="kasSearch" value="' + esc(ui.kasSearch) + '" placeholder="Cari nama siswa…" autocomplete="off"></div></div>' +
+      list;
+  }
+  function payForm(p, memberId) {
+    var isEdit = !!p;
+    var week = isEdit ? p.week : ui.kasWeek;
+    var mid = isEdit ? p.member_id : memberId;
+    var paid = state.kas_payments.filter(function (x) { return x.member_id === mid && Number(x.week) === Number(week); }).reduce(function (s, x) { return s + x.amount; }, 0);
+    var suggested = isEdit ? p.amount : (kasKekurangan(nominal(), paid) || nominal());
+    p = p || { member_id: mid, week: week, amount: suggested, paid_date: todayISO(), note: "" };
+    openForm({
+      title: isEdit ? "Edit Pembayaran" : "Catat Pembayaran Kas", icon: "wallet", color: "green",
+      fields: [
+        { name: "member_id", label: "Nama Siswa", type: "select", value: p.member_id, options: membersSorted().map(function (m) { return { value: m.id, label: m.name }; }) },
+        { name: "week", label: "Minggu", type: "select", value: p.week, half: true, options: [1, 2, 3, 4, 5].map(function (i) { return { value: i, label: "Minggu " + i }; }) },
+        { name: "amount", label: "Nominal (Rp)", type: "number", value: p.amount, min: 1, step: 500, required: true, half: true },
+        { name: "paid_date", label: "Tanggal", type: "date", value: p.paid_date, required: true },
+        { name: "note", label: "Catatan", value: p.note, placeholder: "opsional" }
+      ],
+      onSubmit: function (v) {
+        var amount = Math.round(Number(v.amount));
+        if (!(amount > 0)) { toast("Nominal harus lebih dari 0", "warn"); return false; }
+        var m = state.members.filter(function (x) { return x.id === v.member_id; })[0];
+        var payload = { member_id: v.member_id, week: Number(v.week), amount: amount, paid_date: v.paid_date, note: v.note };
+        ui.kasWeek = payload.week;
+        var q = isEdit ? db.from("kas_payments").update(payload).eq("id", p.id) : db.from("kas_payments").insert(payload);
+        return run(q, { ok: isEdit ? "Pembayaran diperbarui" : "Pembayaran dicatat", tables: ["kas_payments"],
+          log: [isEdit ? "Edit pembayaran kas" : "Bayar kas", (m ? m.name : "") + " · Minggu " + payload.week + " · " + rupiah(amount)] });
+      }
+    });
+  }
+  function nominalForm() {
+    openForm({
+      title: "Ubah Nominal Kas", icon: "coins", color: "green",
+      fields: [{ name: "kas_nominal", label: "Kewajiban per siswa per minggu (Rp)", type: "number", value: nominal(), min: 0, step: 500, required: true }],
+      onSubmit: function (v) { return saveSettings({ kas_nominal: Math.round(Number(v.kas_nominal) || 0) }); }
+    });
+  }
+
+  /* ---------- HALAMAN: ANGGOTA ---------- */
+  function pageAnggota() {
+    var q = ui.memberSearch.toLowerCase();
+    var all = membersSorted();
+    var list = all.filter(function (m) { return !q || m.name.toLowerCase().indexOf(q) >= 0; });
+    var body = list.length ? '<div class="member-grid">' + list.map(function (m) {
+      var i = all.indexOf(m);
+      return '<div class="member"><span class="num">' + (i + 1) + '</span><span class="ava c' + (i % 6) + '">' + esc(initials(m.name)) + '</span><div class="member-info"><b>' + esc(m.name) + "</b><small>Siswa Kelas " + esc(cls()) + "</small></div>" +
+        '<div class="row-actions"><button class="icon-btn sm" data-action="edit-member" data-id="' + m.id + '" aria-label="Edit"><i data-lucide="pencil"></i></button>' +
+        '<button class="icon-btn sm danger" data-action="del-member" data-id="' + m.id + '" aria-label="Hapus"><i data-lucide="trash-2"></i></button></div></div>';
+    }).join("") + "</div>" : emptyBox("search-x", all.length ? "Anggota tidak ditemukan." : "Belum ada anggota.");
+    return pageHead("Anggota Kelas", "Total " + all.length + " siswa" + (q ? " · " + list.length + " cocok" : ""), "users",
+      '<button class="btn btn-primary" data-action="add-member"><i data-lucide="user-plus"></i> Tambah Anggota</button>') +
+      '<div class="toolbar" style="grid-template-columns:1fr"><div class="search"><i data-lucide="search"></i><input id="memberSearch" data-bind="memberSearch" value="' + esc(ui.memberSearch) + '" placeholder="Cari nama anggota…" autocomplete="off"></div></div>' + body;
+  }
+  function memberForm(m) {
+    var isEdit = !!m;
+    openForm({
+      title: isEdit ? "Edit Anggota" : "Tambah Anggota", icon: "user-plus", color: "navy",
+      fields: [{ name: "name", label: "Nama Lengkap", value: m ? m.name : "", required: true }],
+      onSubmit: function (v) {
+        if (isEdit) return run(db.from("members").update({ name: v.name }).eq("id", m.id), { ok: "Anggota diperbarui", tables: ["members"], log: ["Edit anggota", m.name + " → " + v.name] });
+        var num = state.members.reduce(function (x, y) { return Math.max(x, y.number); }, 0) + 1;
+        return run(db.from("members").insert({ name: v.name, number: num }), { ok: "Anggota ditambahkan", tables: ["members"], log: ["Tambah anggota", v.name] });
+      }
+    });
+  }
+
+  /* ---------- HALAMAN: PENGATURAN ---------- */
+  function pagePengaturan() {
+    var th = currentTheme();
+    var logs = state.activity_log.slice(0, 50);
+    return pageHead("Pengaturan", "Perubahan di sini berlaku untuk semua pengguna (kecuali tema).", "settings") +
+      '<div class="settings-grid">' +
+      '<div class="card"><div class="card-head"><div class="card-icon"><i data-lucide="school"></i></div><h3>Identitas Portal</h3></div>' +
+      '<div class="form"><div class="field"><label for="setPortal">Nama Portal</label><input id="setPortal" value="' + esc(portalName()) + '"></div>' +
+      '<div class="field half"><label for="setClass">Nama Kelas</label><input id="setClass" value="' + esc(cls()) + '"></div>' +
+      '<div class="field half"><label for="setNominal">Nominal Kas (Rp)</label><input id="setNominal" type="number" min="0" step="500" value="' + nominal() + '"></div>' +
+      '<div class="modal-actions"><button class="btn btn-primary" data-action="save-settings"><i data-lucide="save"></i> Simpan Pengaturan</button></div></div></div>' +
+
+      '<div class="card"><div class="card-head"><div class="card-icon teal"><i data-lucide="palette"></i></div><h3>Tema Tampilan</h3></div>' +
+      '<div class="theme-switch"><button class="theme-opt' + (th === "light" ? " active" : "") + '" data-action="set-theme" data-theme="light"><i data-lucide="sun"></i> Terang</button>' +
+      '<button class="theme-opt' + (th === "dark" ? " active" : "") + '" data-action="set-theme" data-theme="dark"><i data-lucide="moon"></i> Gelap</button></div>' +
+      '<p class="hint" style="margin-top:10px">Tema disimpan di perangkat ini saja.</p>' +
+      '<div class="section-title">Koneksi</div><p class="hint"><b id="connDetail"></b><br>Database online: Lovable Cloud. Perubahan tersimpan di server dan langsung terlihat di perangkat lain (real-time). Jika real-time terputus, data diperbarui otomatis tiap 15 detik.</p>' +
+      '<div class="btn-row" style="margin-top:10px"><button class="btn btn-ghost btn-sm" data-action="retry"><i data-lucide="refresh-cw"></i> Muat Ulang Data</button></div></div>' +
+
+      '<div class="card"><div class="card-head"><div class="card-icon green"><i data-lucide="database"></i></div><h3>Export / Import Data</h3></div>' +
+      '<p class="hint">Simpan cadangan seluruh data ke file JSON, atau pulihkan dari file cadangan. Import akan <b>mengganti semua data</b>.</p>' +
+      '<div class="btn-row" style="margin-top:12px"><button class="btn btn-teal" data-action="export"><i data-lucide="download"></i> Export JSON</button>' +
+      '<button class="btn btn-ghost" data-action="import"><i data-lucide="upload"></i> Import JSON</button></div>' +
+      '<div class="section-title">Reset Data</div><div class="btn-row">' +
+      '<button class="btn btn-danger btn-sm" data-action="reset" data-what="kas"><i data-lucide="rotate-ccw"></i> Reset Uang Kas</button>' +
+      '<button class="btn btn-danger btn-sm" data-action="reset" data-what="tasks"><i data-lucide="trash-2"></i> Hapus Semua Tugas</button>' +
+      '<button class="btn btn-danger btn-sm" data-action="reset" data-what="ann"><i data-lucide="trash-2"></i> Hapus Semua Pengumuman</button>' +
+      '<button class="btn btn-danger btn-sm" data-action="reset" data-what="log"><i data-lucide="history"></i> Hapus Riwayat</button></div></div>' +
+
+      '<div class="card"><div class="card-head"><div class="card-icon navy"><i data-lucide="history"></i></div><h3>Riwayat Perubahan</h3><span class="badge b-muted">' + logs.length + "</span></div>" +
+      (logs.length ? '<div class="log-list">' + logs.map(function (l) {
+        return '<div class="log-item"><div class="log-main"><b>' + esc(l.action) + "</b><br><span class=\"hint\">" + esc(l.detail) + "</span></div><small>" + timeAgo(l.created_at) + "</small></div>";
+      }).join("") + "</div>" : emptyBox("history", "Belum ada perubahan.")) + "</div>" +
+      "</div>";
+  }
+  function saveSettings(obj) {
+    var rows = Object.keys(obj).map(function (k) { return { key: k, value: obj[k], updated_at: new Date().toISOString() }; });
+    return run(db.from("settings").upsert(rows), { ok: "Pengaturan disimpan", tables: ["settings"],
+      log: ["Ubah pengaturan", Object.keys(obj).map(function (k) { return k + " = " + obj[k]; }).join(", ")] });
+  }
+  function exportData() {
+    var data = {};
+    TABLES.forEach(function (t) {
+      if (t === "activity_log") return;
+      if (t === "settings") data.settings = Object.keys(state.settings).map(function (k) { return { key: k, value: state.settings[k] }; });
+      else data[t] = state[t];
+    });
+    var blob = new Blob([JSON.stringify({ app: "portal-kelas-9a", version: 1, exported_at: new Date().toISOString(), data: data }, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "portal-kelas-" + cls() + "-" + todayISO() + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    toast("Data berhasil di-export", "success");
+    log("Export data", "File JSON");
+  }
+  function importData(json) {
+    var d = json && json.data ? json.data : json;
+    if (!d || !Array.isArray(d.members) || !Array.isArray(d.schedules)) { toast("File JSON tidak valid", "error"); return; }
+    confirmBox({
+      title: "Import data?", icon: "upload", confirm: "Ganti Semua Data",
+      message: "Semua data saat ini (jadwal, piket, tugas, pengumuman, kas, anggota) akan diganti dengan isi file. Tindakan ini berlaku untuk semua pengguna.",
+      onConfirm: function () {
+        var del = ["kas_payments", "tasks", "announcements", "pickets", "schedules", "members"];
+        var ins = ["members", "schedules", "pickets", "tasks", "announcements", "kas_payments"];
+        var chain = Promise.resolve();
+        del.forEach(function (t) { chain = chain.then(function () { return db.from(t).delete().not("id", "is", null).then(check); }); });
+        ins.forEach(function (t) {
+          chain = chain.then(function () { return Array.isArray(d[t]) && d[t].length ? db.from(t).insert(d[t]).then(check) : null; });
+        });
+        chain = chain.then(function () { return Array.isArray(d.settings) && d.settings.length ? db.from("settings").upsert(d.settings.map(function (s) { return { key: s.key, value: s.value }; })).then(check) : null; });
+        return chain.then(function () {
+          toast("Import berhasil", "success"); log("Import data", "Semua data diganti dari file JSON"); return loadAll();
+        }).catch(function (e) { toast("Import gagal: " + (e.message || e), "error"); loadAll(true); });
+      }
+    });
+  }
+  function check(res) { if (res && res.error) throw res.error; return res; }
+  function resetData(what) {
+    var map = {
+      kas: ["kas_payments", "Reset uang kas", "Semua catatan pembayaran kas (Minggu 1–5) akan dihapus."],
+      tasks: ["tasks", "Hapus semua tugas", "Semua tugas akan dihapus permanen."],
+      ann: ["announcements", "Hapus semua pengumuman", "Semua pengumuman akan dihapus permanen."],
+      log: ["activity_log", "Hapus riwayat", "Seluruh riwayat perubahan akan dihapus."]
+    }[what];
+    confirmBox({
+      title: map[1] + "?", message: map[2] + " Tindakan ini berlaku untuk semua pengguna dan tidak bisa dibatalkan.", confirm: "Ya, Hapus", icon: "rotate-ccw",
+      onConfirm: function () {
+        return run(db.from(map[0]).delete().not("id", "is", null), { ok: map[1] + " berhasil", tables: [map[0]], log: what === "log" ? null : [map[1], "Reset data"] });
+      }
+    });
+  }
+
+  var PAGES = { beranda: pageBeranda, jadwal: pageJadwal, piket: pagePiket, tugas: pageTugas, pengumuman: pagePengumuman, kas: pageKas, anggota: pageAnggota, pengaturan: pagePengaturan };
+
+  /* ---------- EVENT ---------- */
+  function byId(table, id) { return state[table].filter(function (x) { return x.id === id; })[0]; }
+  var ACTIONS = {
+    "go": function (d) { go(d.page); },
+    "open-drawer": openDrawer,
+    "close-drawer": closeDrawer,
+    "close-modal": closeModal,
+    "toggle-theme": function () { applyTheme(currentTheme() === "dark" ? "light" : "dark"); if (ui.page === "pengaturan") render(); },
+    "set-theme": function (d) { applyTheme(d.theme); render(); },
+    "retry": function () { state.error = false; updateConn(); render(); loadAll(); },
+    "jadwal-day": function (d) { ui.jadwalDay = Number(d.day); render(); },
+    "add-schedule": function () { scheduleForm(null); },
+    "edit-schedule": function (d) { scheduleForm(byId("schedules", d.id)); },
+    "del-schedule": function (d) {
+      var s = byId("schedules", d.id);
+      confirmBox({ title: "Hapus jadwal?", message: s.subject + " (" + DAYS[s.day] + ", " + fmtTime(s.start_time) + "–" + fmtTime(s.end_time) + ") akan dihapus.",
+        onConfirm: function () { return run(db.from("schedules").delete().eq("id", s.id), { ok: "Jadwal dihapus", tables: ["schedules"], log: ["Hapus jadwal", DAYS[s.day] + " " + s.subject] }); } });
+    },
+    "add-picket": function (d) { picketForm(null, Number(d.day)); },
+    "edit-picket": function (d) { picketForm(byId("pickets", d.id)); },
+    "move-picket": function (d) { picketForm(byId("pickets", d.id), null, true); },
+    "del-picket": function (d) {
+      var p = byId("pickets", d.id);
+      confirmBox({ title: "Hapus petugas piket?", message: p.name + " akan dihapus dari piket hari " + DAYS[p.day] + ".",
+        onConfirm: function () { return run(db.from("pickets").delete().eq("id", p.id), { ok: "Petugas piket dihapus", tables: ["pickets"], log: ["Hapus piket", p.name + " (" + DAYS[p.day] + ")"] }); } });
+    },
+    "add-task": function () { taskForm(null); },
+    "edit-task": function (d) { taskForm(byId("tasks", d.id)); },
+    "del-task": function (d) {
+      var t = byId("tasks", d.id);
+      confirmBox({ title: "Hapus tugas?", message: "“" + t.title + "” akan dihapus permanen.",
+        onConfirm: function () { return run(db.from("tasks").delete().eq("id", t.id), { ok: "Tugas dihapus", tables: ["tasks"], log: ["Hapus tugas", t.title] }); } });
+    },
+    "add-ann": function () { annForm(null); },
+    "edit-ann": function (d) { annForm(byId("announcements", d.id)); },
+    "del-ann": function (d) {
+      var a = byId("announcements", d.id);
+      confirmBox({ title: "Hapus pengumuman?", message: "“" + a.title + "” akan dihapus permanen.",
+        onConfirm: function () { return run(db.from("announcements").delete().eq("id", a.id), { ok: "Pengumuman dihapus", tables: ["announcements"], log: ["Hapus pengumuman", a.title] }); } });
+    },
+    "kas-week": function (d) { ui.kasWeek = Number(d.week); render(); },
+    "pay": function (d) { payForm(null, d.member); },
+    "edit-pay": function (d) { payForm(byId("kas_payments", d.id)); },
+    "del-pay": function (d) {
+      var p = byId("kas_payments", d.id), m = byId("members", p.member_id);
+      confirmBox({ title: "Hapus pembayaran?", message: rupiah(p.amount) + " dari " + (m ? m.name : "siswa") + " (Minggu " + p.week + ") akan dihapus.",
+        onConfirm: function () { return run(db.from("kas_payments").delete().eq("id", p.id), { ok: "Pembayaran dihapus", tables: ["kas_payments"], log: ["Hapus pembayaran kas", (m ? m.name : "") + " · Minggu " + p.week + " · " + rupiah(p.amount)] }); } });
+    },
+    "edit-nominal": nominalForm,
+    "add-member": function () { memberForm(null); },
+    "edit-member": function (d) { memberForm(byId("members", d.id)); },
+    "del-member": function (d) {
+      var m = byId("members", d.id);
+      confirmBox({ title: "Hapus anggota?", message: m.name + " akan dihapus dari kelas, termasuk catatan uang kasnya.",
+        onConfirm: function () { return run(db.from("members").delete().eq("id", m.id), { ok: "Anggota dihapus", tables: ["members", "kas_payments"], log: ["Hapus anggota", m.name] }); } });
+    },
+    "save-settings": function () {
+      var name = $("#setPortal").value.trim(), c = $("#setClass").value.trim(), n = Math.round(Number($("#setNominal").value) || 0);
+      if (!name || !c) { toast("Nama portal dan kelas wajib diisi", "warn"); return; }
+      saveSettings({ portal_name: name, class_name: c, kas_nominal: n });
+    },
+    "export": exportData,
+    "import": function () { $("#importFile").value = ""; $("#importFile").click(); },
+    "reset": function (d) { resetData(d.what); }
+  };
+
+  document.addEventListener("click", function (e) {
+    var el = e.target.closest("[data-action]");
+    if (!el) return;
+    var fn = ACTIONS[el.dataset.action];
+    if (fn) { e.preventDefault(); fn(el.dataset, el); }
+  });
+  document.addEventListener("input", function (e) {
+    var b = e.target.dataset && e.target.dataset.bind;
+    if (b && e.target.tagName === "INPUT") { ui[b] = e.target.value; render(); }
+  });
+  document.addEventListener("change", function (e) {
+    var t = e.target;
+    if (t.dataset && t.dataset.bind && t.tagName === "SELECT") { ui[t.dataset.bind] = t.value; render(); }
+    if (t.dataset && t.dataset.change === "task-status") {
+      var task = byId("tasks", t.dataset.id);
+      run(db.from("tasks").update({ status: t.value }).eq("id", t.dataset.id), { ok: "Status tugas: " + t.value, tables: ["tasks"], log: ["Ubah status tugas", (task ? task.title : "") + " → " + t.value] });
+    }
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { closeModal(); closeDrawer(); } });
+  $("#importFile").addEventListener("change", function () {
+    var f = this.files && this.files[0]; if (!f) return;
+    var r = new FileReader();
+    r.onload = function () { try { importData(JSON.parse(r.result)); } catch (err) { toast("File bukan JSON yang valid", "error"); } };
+    r.readAsText(f);
+  });
+
+  /* ---------- MULAI ---------- */
+  function start() {
+    $("#splashTitle").textContent = portalName();
+    $("#splashClass").textContent = cls();
+    $("#splashTag").textContent = "“Satu portal untuk semua informasi kelas " + cls() + ".”";
+    buildNav();
+    applyTheme(currentTheme());
+    render();
+    updateConn();
+    loadAll();
+    subscribe();
+    // Splash ±2 detik, hanya saat aplikasi dibuka
+    setTimeout(function () {
+      var s = $("#splash"); s.classList.add("hide");
+      setTimeout(function () { s.remove(); }, 700);
+    }, 2000);
+  }
+  start();
+})();
